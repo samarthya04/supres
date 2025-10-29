@@ -1,0 +1,73 @@
+mode: 'test'
+use_perceptual_loss: true
+
+model:
+  name: 'SupResDiffGAN'
+  lr: 0.000005
+  alfa_perceptual: 0.001
+  alfa_adv: 0.008
+  load_model: "models/checkpoints/SupResDiffGAN-epoch=204-val/LPIPS=0.148.ckpt"
+
+trainer:
+  max_epochs: 250
+  max_steps: -1 
+  check_val_every_n_epoch: 5
+  limit_val_batches: 0.25 
+  log_every_n_steps: 10
+  precision: 16-mixed
+  accelerator: 'gpu'
+  devices: 1
+  resume_from_checkpoint: "models/checkpoints/SupResDiffGAN-epoch=204-val/LPIPS=0.148.ckpt"
+
+dataset:
+  name: 'celeb'
+  batch_size: 32
+  resize: true
+  scale: 4
+
+evaluation:
+  mode: 'all'
+  steps:
+    - 50
+    - 100
+    - 200 
+  posteriors:
+    - 'ddpm'
+    - 'ddim'
+  save_results: true
+  results_file: 'evaluation_results/final_evaluation.csv'
+
+checkpoint:
+  monitor: 'val/LPIPS'
+  dirpath: 'models/checkpoints/'
+  save_top_k: 1
+  mode: 'min'
+  save_last: true
+  filename: 'SupResDiffGAN-{epoch:02d}-{val/LPIPS:.4f}'
+
+autoencoder: 'VAE'
+feature_extractor: true
+
+unet:
+  - 64
+  - 96
+  - 128
+  - 256
+
+diffusion:
+  timesteps: 200
+  beta_type: 'cosine'
+  posterior_type: 'ddpm'
+  validation_timesteps: 100
+  validation_posterior_type: 'ddim'
+
+discriminator:
+  in_channels: 6
+  channels:
+    - 64
+    - 128
+    - 256
+
+wandb:
+  project: 'SupResDiffGAN'
+  entity: 'samarthya04-kiit-deemed-to-be-university'
