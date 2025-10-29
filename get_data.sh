@@ -132,7 +132,7 @@ download_celeb() {
 	fi
 
 	echo "Splitting data into train, test, and validation sets..."
-	python ~/scripts/data_scripts/divide_data_celeb.py
+	python scripts/data_scripts/divide_data_celeb.py
 	if [ $? -ne 0 ]; then
 		echo "Error: Failed to split Celeb-A-HQ dataset."
 		return 1
