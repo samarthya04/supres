@@ -1,76 +1,68 @@
 mode: 'train-test'
-use_perceptual_loss: true # Recommendation 2: Enabled perceptual loss
+use_perceptual_loss: true
 
 model:
   name: 'SupResDiffGAN'
-  lr: 0.00005 # Increased slightly from 5e-6 for potentially faster fine-tuning
-  alfa_perceptual: 0.01 # Recommendation 2: Increased weight for perceptual loss (adjust based on results)
-  alfa_adv: 0.01 # Recommendation 5: Adjusted back to the original value
-  load_model: null # Set to null for training, or keep the path to fine-tune
+  lr: 0.00005 
+  alfa_perceptual: 0.01 
+  alfa_adv: 0.01 
+  load_model: null
 
 trainer:
-  max_epochs: 250 # Or adjust for fine-tuning duration
+  max_epochs: 250
   max_steps: -1
   check_val_every_n_epoch: 5
   limit_val_batches: 0.25
   log_every_n_steps: 10
-  precision: '16-mixed' # Recommendation 4: Changed to full precision
+  precision: '16-mixed' # Keep mixed precision for memory
   accelerator: 'gpu'
   devices: 1
-  accumulate_grad_batches: 4
-  # Keep resume_from_checkpoint if fine-tuning from epoch 204
+  accumulate_grad_batches: 2 # Can reduce this slightly, e.g., to 2 (effective batch 8)
   resume_from_checkpoint: null
 
 dataset:
   name: 'celeb'
-  batch_size: 4 # Reduced batch size slightly due to potentially higher memory usage with AutoencoderKL
+  batch_size: 4 # Keep small batch size
   resize: true
   scale: 4
 
-evaluation: # Settings for testing *after* training/fine-tuning completes
+evaluation:
   mode: 'all'
-  steps:
-    - 50
-    - 100
-    - 200
-  posteriors:
-    - 'ddpm'
-    - 'ddim'
+  steps: [50, 100, 200]
+  posteriors: ['ddpm', 'ddim']
   save_results: true
-  results_file: 'evaluation_results/fine_tuned_evaluation.csv' # Changed filename
+  results_file: 'evaluation_results/final_evaluation.csv' # New file
 
 checkpoint:
   monitor: 'val/LPIPS'
-  dirpath: 'models/checkpoints_finetuned/' # Changed save directory
+  dirpath: 'models/checkpoints_medium/' # New directory
   save_top_k: 1
   mode: 'min'
   save_last: true
-  filename: 'SupResDiffGAN-{epoch:02d}-{val/LPIPS:.4f}' # Changed filename pattern
+  filename: 'SupResDiffGAN-{epoch:02d}-{val/LPIPS:.4f}' # New name
 
-autoencoder: 'VAE' # This now refers to AutoencoderKL via model_config.py
+autoencoder: 'VAE' # This now refers to AutoencoderKL
 feature_extractor: true
 
 unet:
   - 64
   - 96
   - 128
-  - 512 # Recommendation 6: Increased last block channels
+  - 256 # <-- REDUCED from 512 (faster)
 
 diffusion:
-  timesteps: 1000 # Recommendation 1: Increased training timesteps
+  timesteps: 200
   beta_type: 'cosine'
   posterior_type: 'ddpm'
-  # Settings below apply during validation steps of training/fine-tuning
-  validation_timesteps: 100 # Can keep fewer steps for faster validation
+  validation_timesteps: 100
   validation_posterior_type: 'ddim'
 
 discriminator:
-  in_channels: 6 # Assumes pixel-space discriminator (concatenated real/fake images)
+  in_channels: 6
   channels:
     - 64
     - 128
-    - 256
-    - 512 # Increased discriminator capacity slightly
+    - 256 # <-- REDUCED from 512 (faster)
 
 wandb:
   project: 'SupResDiffGAN'
