@@ -4,7 +4,7 @@ import numpy as np
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
-import os
+import wandb
 from matplotlib import pyplot as plt
 from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
@@ -86,12 +86,15 @@ class SupResDiffGAN_simple_gan(pl.LightningModule):
             Output tensor with shape (batch_size, channels, height, width).
         """
         with torch.no_grad():
-            x_lat = self.ae.encode(x).latents.detach()
+            x_lat = (
+                self.ae.encode(x).latent_dist.mode().detach()
+                * self.ae.config.scaling_factor
+            )
 
         x = self.diffusion.sample(self.generator, x_lat, x_lat.shape)
 
         with torch.no_grad():
-            x_out = self.ae.decode(x).sample
+            x_out = self.ae.decode(x / self.ae.config.scaling_factor).sample
         x_out = torch.clamp(x_out, -1, 1)
         return x_out
 
@@ -119,8 +122,14 @@ class SupResDiffGAN_simple_gan(pl.LightningModule):
 
         # Going into the latent space
         with torch.no_grad():
-            lr_lat = self.ae.encode(lr_img).latents.detach()
-            x0_lat = self.ae.encode(hr_img).latents.detach()
+            lr_lat = (
+                self.ae.encode(lr_img).latent_dist.mode().detach()
+                * self.ae.config.scaling_factor
+            )
+            x0_lat = (
+                self.ae.encode(hr_img).latent_dist.mode().detach()
+                * self.ae.config.scaling_factor
+            )
 
         # Forward diffusion process
         timesteps = torch.randint(
@@ -139,11 +148,12 @@ class SupResDiffGAN_simple_gan(pl.LightningModule):
 
         # Going back to pixel space
         with torch.no_grad():
-            sr_img = self.ae.decode(x_gen_0).sample
+            sr_img = self.ae.decode(x_gen_0 / self.ae.config.scaling_factor).sample
             sr_img = torch.clamp(sr_img, -1, 1)
 
         if batch_idx % 2 == 0:
             # Generator training
+            self.toggle_optimizer(optimizer_g)
             optimizer_g.zero_grad()
             g_loss = self.generator_loss(
                 x0_lat,
@@ -153,6 +163,7 @@ class SupResDiffGAN_simple_gan(pl.LightningModule):
             )
             self.manual_backward(g_loss)
             optimizer_g.step()
+            self.untoggle_optimizer(optimizer_g)
             self.log(
                 "train/g_loss",
                 g_loss,
@@ -166,10 +177,12 @@ class SupResDiffGAN_simple_gan(pl.LightningModule):
 
         else:
             # Discriminator training
+            self.toggle_optimizer(optimizer_d)
             optimizer_d.zero_grad()
             d_loss = self.discriminator_loss(hr_img, sr_img.detach())
             self.manual_backward(d_loss)
             optimizer_d.step()
+            self.untoggle_optimizer(optimizer_d)
             self.log(
                 "train/d_loss",
                 d_loss,
@@ -204,13 +217,13 @@ class SupResDiffGAN_simple_gan(pl.LightningModule):
         if batch_idx == 0:
             title = f"Epoch {self.current_epoch}"
             img_array = self.plot_images(hr_img, lr_img, sr_img, padding_info, title)
-            # Log validation images to wandb
-            import wandb
-            from PIL import Image
-            img_pil = Image.fromarray(img_array)
-            self.logger.experiment.log({
-                "validation_images": wandb.Image(img_pil, caption=f"Epoch {self.current_epoch}")
-            })
+            self.logger.experiment.log(
+                {
+                    f"Validation epoch: {self.current_epoch}": [
+                        wandb.Image(img_array, caption=f"Epoch {self.current_epoch}")
+                    ]
+                }
+            )
 
         # Compute and log metrics
         metrics = {"PSNR": [], "SSIM": [], "MSE": []}
@@ -314,11 +327,9 @@ class SupResDiffGAN_simple_gan(pl.LightningModule):
                 padding_info,
                 title=f"Test Images: timesteps: {self.diffusion.timesteps}, posterior: {self.diffusion.posterior_type}",
             )
-            # Save test images locally
-            os.makedirs("outputs/test_images", exist_ok=True)
-            from PIL import Image
-            img_pil = Image.fromarray(img_array)
-            img_pil.save(f"outputs/test_images/test_results_timesteps_{self.diffusion.timesteps}_posterior_{self.diffusion.posterior_type}.png")
+            self.logger.experiment.log(
+                {f"Test images": [wandb.Image(img_array, caption=f"Test Images")]}
+            )
 
         # Compute metrics
         metrics = {"PSNR": [], "SSIM": [], "MSE": []}

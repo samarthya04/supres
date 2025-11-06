@@ -186,7 +186,7 @@ def main(cfg) -> None:
     EvaluateFreshInitializedModelException
         If no pre-trained model is specified in the configuration.
     """
-    torch.set_float32_matmul_precision('medium')
+
     if cfg.model.load_model is None:
         raise EvaluateFreshInitializedModelException()
 
@@ -209,11 +209,10 @@ def main(cfg) -> None:
     model = model.to(device)
 
     trainer = Trainer(
-        accelerator=cfg.trainer.accelerator,
-        devices=cfg.trainer.devices,
-        precision=cfg.trainer.precision,
+        devices=num_gpus,
         logger=logger,
-    )   
+        strategy=DDPStrategy(find_unused_parameters=True),
+    )
 
     evaluate_model(cfg, model, trainer, test_loader)
 

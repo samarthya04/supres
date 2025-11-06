@@ -1,14 +1,8 @@
-# In scripts/model_config.py
-
 from .model_config_imports import *
-# Import AutoencoderKL instead of AutoencoderTiny
-from diffusers import AutoencoderKL
-import torch # Ensure torch is imported
-import os # Ensure os is imported
 
 
 def model_selection(cfg, device):
-    """Select and initialize SupResDiffGAN model variants based on the configuration.
+    """Select and initialize the model based on the configuration.
 
     Parameters
     ----------
@@ -20,18 +14,236 @@ def model_selection(cfg, device):
     Returns
     -------
     torch.nn.Module
-        The initialized SupResDiffGAN model.
+        The initialized model.
 
     Raises
     ------
     ValueError
-        If the specified model is not a supported SupResDiffGAN variant.
+        If the specified model is not found in the configuration.
     """
 
-    if cfg.model.name == "SupResDiffGAN":
+    if cfg.model.name == "SR3":
+        unet = UNet_sr3(channels=cfg.unet)
+        diffusion = Diffusion_sr3(
+            timesteps=cfg.diffusion.timesteps,
+            beta_type=cfg.diffusion.beta_type,
+            posterior_type=cfg.diffusion.posterior_type,
+        )
+
+        if cfg.model.load_model is not None:
+            model_path = cfg.model.load_model
+            _, ext = os.path.splitext(model_path)
+            if ext == ".pth":
+                model = SR3(unet_model=unet, diffusion=diffusion, lr=cfg.model.lr)
+                model.load_state_dict(torch.load(model_path, map_location=device))
+            elif ext == ".ckpt":
+                model = SR3.load_from_checkpoint(
+                    model_path,
+                    map_location=device,
+                    unet_model=unet,
+                    diffusion=diffusion,
+                    lr=cfg.model.lr,
+                )
+            else:
+                raise ValueError(f"Unsupported file extension: {ext}")
+        else:
+            model = SR3(unet_model=unet, diffusion=diffusion, lr=cfg.model.lr)
+
+        return model
+
+    elif cfg.model.name == "SRGAN":
+        discriminator = Discriminator_srgan(
+            in_channels=cfg.discriminator.in_channels,
+            channels=cfg.discriminator.channels,
+        )
+        generator = Generator_srgan(
+            in_channels=cfg.generator.in_channels,
+            out_channels=cfg.generator.out_channels,
+            scale_factor=cfg.generator.scale_factor,
+            num_resblocks=cfg.generator.num_resblocks,
+        )
+        vgg_loss = VGGLoss_srgan(device)
+
+        if cfg.model.load_model is not None:
+            model_path = cfg.model.load_model
+            _, ext = os.path.splitext(model_path)
+            if ext == ".pth":
+                model = SRGAN(
+                    discriminator=discriminator,
+                    generator=generator,
+                    vgg_loss=vgg_loss,
+                    learning_rate=cfg.model.lr,
+                )
+                model.load_state_dict(torch.load(model_path, map_location=device))
+            elif ext == ".ckpt":
+                model = SRGAN.load_from_checkpoint(
+                    model_path,
+                    map_location=device,
+                    discriminator=discriminator,
+                    generator=generator,
+                    vgg_loss=vgg_loss,
+                    learning_rate=cfg.model.lr,
+                )
+            else:
+                raise ValueError(f"Unsupported file extension: {ext}")
+
+        else:
+            model = SRGAN(
+                discriminator=discriminator,
+                generator=generator,
+                vgg_loss=vgg_loss,
+                learning_rate=cfg.model.lr,
+            )
+
+        return model
+
+    elif cfg.model.name == "SupResDiffGAN":
         return initialize_supresdiffgan(
             cfg, device, SupResDiffGAN, use_discriminator=True
         )
+
+    elif cfg.model.name == "ESRGAN":
+        discriminator = Discriminator_esrgan(in_channels=cfg.discriminator.in_channels)
+        generator = Generator_esrgan(
+            in_channels=cfg.generator.in_channels,
+            out_channels=cfg.generator.out_channels,
+            num_resblocks=cfg.generator.num_resblocks,
+            scale_factor=cfg.generator.scale_factor,
+        )
+        feature_extractor = FeatureExtractor_esrgan()
+
+        if cfg.model.load_model is not None:
+            model_path = cfg.model.load_model
+            _, ext = os.path.splitext(model_path)
+            if ext == ".pth":
+                model = ESRGAN(
+                    discriminator=discriminator,
+                    generator=generator,
+                    feature_extractor=feature_extractor,
+                    learning_rate=cfg.model.lr,
+                )
+                model.load_state_dict(torch.load(model_path, map_location=device))
+            elif ext == ".ckpt":
+                model = ESRGAN.load_from_checkpoint(
+                    model_path,
+                    map_location=device,
+                    discriminator=discriminator,
+                    generator=generator,
+                    feature_extractor=feature_extractor,
+                    learning_rate=cfg.model.lr,
+                )
+            else:
+                raise ValueError(f"Unsupported file extension: {ext}")
+
+        else:
+            model = ESRGAN(
+                discriminator=discriminator,
+                generator=generator,
+                feature_extractor=feature_extractor,
+                learning_rate=cfg.model.lr,
+            )
+
+        return model
+
+    elif cfg.model.name == "I2SB":
+        unet = UNet_i2sb(channels=cfg.unet)
+        diffusion = Diffusion_i2sb(
+            n_timestep=cfg.diffusion.timesteps,
+        )
+
+        if cfg.model.load_model is not None:
+            model_path = cfg.model.load_model
+            _, ext = os.path.splitext(model_path)
+            if ext == ".pth":
+                model = I2SB(unet_model=unet, diffusion=diffusion, lr=cfg.model.lr)
+                model.load_state_dict(torch.load(model_path, map_location=device))
+            elif ext == ".ckpt":
+                model = I2SB.load_from_checkpoint(
+                    model_path,
+                    map_location=device,
+                    unet_model=unet,
+                    diffusion=diffusion,
+                    lr=cfg.model.lr,
+                )
+            else:
+                raise ValueError(f"Unsupported file extension: {ext}")
+        else:
+            model = I2SB(unet_model=unet, diffusion=diffusion, lr=cfg.model.lr)
+
+        return model
+
+    elif cfg.model.name == "RealESRGAN":
+        discriminator = Discriminator_realesrgan(
+            in_channels=cfg.discriminator.in_channels
+        )
+        generator = Generator_realesrgan(
+            in_channels=cfg.generator.in_channels,
+            out_channels=cfg.generator.out_channels,
+            num_resblocks=cfg.generator.num_resblocks,
+            scale_factor=cfg.generator.scale_factor,
+        )
+
+        feature_extractor = FeatureExtractor_realesrgan(device)
+
+        if cfg.model.load_model is not None:
+            model_path = cfg.model.load_model
+            _, ext = os.path.splitext(model_path)
+            if ext == ".pth":
+                model = RealESRGAN(
+                    discriminator=discriminator,
+                    generator=generator,
+                    feature_extractor=feature_extractor,
+                    learning_rate=cfg.model.lr,
+                )
+                model.load_state_dict(torch.load(model_path, map_location=device))
+            elif ext == ".ckpt":
+                model = RealESRGAN.load_from_checkpoint(
+                    model_path,
+                    map_location=device,
+                    discriminator=discriminator,
+                    generator=generator,
+                    feature_extractor=feature_extractor,
+                    learning_rate=cfg.model.lr,
+                )
+            else:
+                raise ValueError(f"Unsupported file extension: {ext}")
+
+        else:
+            model = RealESRGAN(
+                discriminator=discriminator,
+                generator=generator,
+                feature_extractor=feature_extractor,
+                learning_rate=cfg.model.lr,
+            )
+
+        return model
+
+    elif cfg.model.name == "ResShift":
+        unet = UNet_resshift(channels=cfg.unet)
+        diffusion = Diffusion_resshift(
+            n_timestep=cfg.diffusion.timesteps,
+        )
+
+        if cfg.model.load_model is not None:
+            model_path = cfg.model.load_model
+            _, ext = os.path.splitext(model_path)
+            if ext == ".pth":
+                model = ResShift(unet_model=unet, diffusion=diffusion, lr=cfg.model.lr)
+                model.load_state_dict(torch.load(model_path, map_location=device))
+            elif ext == ".ckpt":
+                model = ResShift.load_from_checkpoint(
+                    model_path,
+                    map_location=device,
+                    unet_model=unet,
+                    diffusion=diffusion,
+                    lr=cfg.model.lr,
+                )
+            else:
+                raise ValueError(f"Unsupported file extension: {ext}")
+        else:
+            model = ResShift(unet_model=unet, diffusion=diffusion, lr=cfg.model.lr)
+
+        return model
 
     elif cfg.model.name == "SupResDiffGAN_without_adv":
         return initialize_supresdiffgan(
@@ -44,10 +256,7 @@ def model_selection(cfg, device):
         )
 
     else:
-        raise ValueError(
-            f"Model '{cfg.model.name}' not found. "
-            f"Supported models: SupResDiffGAN, SupResDiffGAN_without_adv, SupResDiffGAN_simple_gan"
-        )
+        raise ValueError("Model not found")
 
 
 def initialize_supresdiffgan(cfg, device, model_class, use_discriminator=True):
@@ -63,6 +272,8 @@ def initialize_supresdiffgan(cfg, device, model_class, use_discriminator=True):
         The class of the model to initialize (e.g., SupResDiffGAN, SupResDiffGAN_without_adv).
     use_discriminator : bool, optional
         Whether to include the discriminator in the model initialization.
+    use_vgg_loss : bool, optional
+        Whether to include the VGG loss in the model initialization.
 
     Returns
     -------
@@ -70,125 +281,78 @@ def initialize_supresdiffgan(cfg, device, model_class, use_discriminator=True):
         The initialized model.
     """
     if cfg.autoencoder == "VAE":
-        # Recommendation 3: Use AutoencoderKL
-        model_id = "stabilityai/stable-diffusion-2-1" # Model ID for AutoencoderKL
-        autoencoder = AutoencoderKL.from_pretrained(model_id, subfolder="vae").to(device)
-        # AutoencoderKL output has 4 channels. UNet in_channels needs to be 8 (4+4).
-        # Discriminator in_channels needs to be 6 (pixel space) or 8 (latent space).
-        print(f"Loaded AutoencoderKL from {model_id}")
-
-    else:
-        raise ValueError(f"Unsupported autoencoder type: {cfg.autoencoder}")
-
-
-    discriminator = None # Initialize as None
-    if use_discriminator:
-        discriminator = Discriminator_supresdiffgan(
-             # Config value (6) assumes pixel-space D. If latent-space, should be 8.
-            in_channels=cfg.discriminator.in_channels,
-            channels=cfg.discriminator.channels, # Now includes 512
+        model_id = "stabilityai/stable-diffusion-2-1"
+        autoencoder = AutoencoderKL.from_pretrained(model_id, subfolder="vae").to(
+            device
         )
-        print("Initialized Discriminator.")
 
+    discriminator = (
+        Discriminator_supresdiffgan(
+            in_channels=cfg.discriminator.in_channels,
+            channels=cfg.discriminator.channels,
+        )
+        if use_discriminator
+        else None
+    )
 
-    # Ensure UNet is correctly sized based on config
-    unet = UNet_supresdiffgan(cfg.unet) # Should now get [64, 96, 128, 512]
-    print(f"Initialized UNet with channels: {cfg.unet}")
-
+    unet = UNet_supresdiffgan(cfg.unet)
 
     diffusion = Diffusion_supresdiffgan(
-        timesteps=cfg.diffusion.timesteps, # Should now get 1000
+        timesteps=cfg.diffusion.timesteps,
         beta_type=cfg.diffusion.beta_type,
         posterior_type=cfg.diffusion.posterior_type,
     )
-    print(f"Initialized Diffusion with {cfg.diffusion.timesteps} timesteps.")
 
-
-    # Initialize vgg_loss based on cfg.use_perceptual_loss
-    vgg_loss = None # Default to None
-    if cfg.get('use_perceptual_loss', False): # Use .get for safety
-        if cfg.get('feature_extractor', False): # Use .get for safety
+    if cfg.use_perceptual_loss:
+        if cfg.feature_extractor:
             vgg_loss = FeatureExtractor_supresdiffgan(device)
-            print("Initialized FeatureExtractor for perceptual loss.")
         else:
             vgg_loss = VGGLoss_supresdiffgan(device)
-            print("Initialized VGGLoss for perceptual loss.")
     else:
-        print("Perceptual loss is disabled.")
+        vgg_loss = None
 
-
-    # Prepare arguments for model initialization or loading
-    # Filter kwargs based on the specific model class constructor signature
-    import inspect
-    sig = inspect.signature(model_class.__init__)
-    valid_kwargs = sig.parameters.keys()
-
-    model_kwargs = {
-        'ae': autoencoder,
-        'unet': unet,
-        'diffusion': diffusion,
-        'learning_rate': cfg.model.lr,
-        'alfa_perceptual': cfg.model.alfa_perceptual,
-        'vgg_loss': vgg_loss
-    }
-
-    # Add discriminator and alfa_adv only if the model expects them and use_discriminator is True
-    if use_discriminator:
-        if 'discriminator' in valid_kwargs:
-             model_kwargs['discriminator'] = discriminator
-        if 'alfa_adv' in valid_kwargs:
-             model_kwargs['alfa_adv'] = cfg.model.alfa_adv
-    # If the model expects alfa_adv even without discriminator (like SupResDiffGAN_without_adv placeholder), add it
-    elif 'alfa_adv' in valid_kwargs:
-         model_kwargs['alfa_adv'] = 0.0 # Pass 0.0 or the config value if needed
-
-
-    model_to_load = cfg.model.get('load_model', None) # Use .get for safety
-    resume_checkpoint = cfg.trainer.get('resume_from_checkpoint', None) # Check for resume path
-
-    # Determine the path to load from (resume takes precedence if specified)
-    load_path = resume_checkpoint if resume_checkpoint else model_to_load
-
-    if load_path is not None:
-        print(f"Attempting to load model weights from: {load_path}")
-        _, ext = os.path.splitext(load_path)
+    if cfg.model.load_model is not None:
+        model_path = cfg.model.load_model
+        _, ext = os.path.splitext(model_path)
         if ext == ".pth":
-            # Load raw state dict
-            print(f"Loading state dict from .pth file: {load_path}")
-            model = model_class(**model_kwargs) # Initialize model first
-            try:
-                state_dict = torch.load(load_path, map_location=device)
-                # Adjust keys if necessary (e.g., remove 'model.' prefix)
-                state_dict = {k.replace('model.', ''): v for k, v in state_dict.items()}
-                model.load_state_dict(state_dict, strict=False) # Use strict=False initially
-                print("Successfully loaded state dict from .pth file.")
-            except Exception as e:
-                print(f"Warning: Failed to load state dict from {load_path}. Error: {e}. Initializing fresh model.")
-                model = model_class(**model_kwargs)
-
-
+            model = model_class(
+                ae=autoencoder,
+                discriminator=discriminator,
+                unet=unet,
+                diffusion=diffusion,
+                learning_rate=cfg.model.lr,
+                alfa_perceptual=cfg.model.alfa_perceptual,
+                alfa_adv=cfg.model.alfa_adv,
+                vgg_loss=vgg_loss,
+            )
+            model.load_state_dict(torch.load(model_path, map_location=device))
         elif ext == ".ckpt":
-            # Load from PyTorch Lightning checkpoint
-            print(f"Loading from Lightning checkpoint: {load_path}")
-            try:
-                # Pass necessary construction args again for PL loading
-                model = model_class.load_from_checkpoint(
-                    load_path,
-                    map_location=device,
-                    strict=False, # Use strict=False initially
-                    **model_kwargs
-                )
-                print(f"Successfully loaded model from checkpoint: {load_path}")
-            except Exception as e:
-                print(f"Warning: Failed to load checkpoint {load_path}. Error: {e}. Initializing fresh model.")
-                # Fallback to initializing a new model if loading fails
-                model = model_class(**model_kwargs)
+            model = model_class.load_from_checkpoint(
+                model_path,
+                map_location=device,
+                ae=autoencoder,
+                discriminator=discriminator,
+                unet=unet,
+                diffusion=diffusion,
+                learning_rate=cfg.model.lr,
+                alfa_perceptual=cfg.model.alfa_perceptual,
+                alfa_adv=cfg.model.alfa_adv,
+                vgg_loss=vgg_loss,
+            )
+
         else:
-            raise ValueError(f"Unsupported file extension for loading: {ext}")
+            raise ValueError(f"Unsupported file extension: {ext}")
 
     else:
-        # Initialize a new model from scratch
-        print("Initializing new model from scratch.")
-        model = model_class(**model_kwargs)
+        model = model_class(
+            ae=autoencoder,
+            discriminator=discriminator,
+            unet=unet,
+            diffusion=diffusion,
+            learning_rate=cfg.model.lr,
+            alfa_perceptual=cfg.model.alfa_perceptual,
+            alfa_adv=cfg.model.alfa_adv,
+            vgg_loss=vgg_loss,
+        )
 
     return model

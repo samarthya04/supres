@@ -1,38 +1,28 @@
 #!/bin/bash
 
-# --- CONFIGURATIONS ---
+# Configurations
+# URL and file names for datasets
+# Note: To use ImageNet, you need to provide the URL and zip file name from https://www.image-net.org
 CELEB_URL="https://www.kaggle.com/api/v1/datasets/download/badasstechie/celebahq-resized-256x256"
 CELEB_ZIP_FILE="celeb_a_hq.zip"
+
 SET14_URL="https://www.kaggle.com/api/v1/datasets/download/guansuo/set14dataset"
 SET14_ZIP_FILE="set14dataset.zip"
+
 URBAN_URL="https://www.kaggle.com/api/v1/datasets/download/harshraone/urban100"
 URBAN_ZIP_FILE="urban100.zip"
+
 REALSR_URL="https://www.kaggle.com/api/v1/datasets/download/yashchoudhary/realsr-v3"
 REALSR_ZIP_FILE="realsr-v3.zip"
+
 DIV2k_URL="https://www.kaggle.com/api/v1/datasets/download/takihasan/div2k-dataset-for-super-resolution"
 DIV2K_ZIP_FILE="div2k.zip"
-IMGNET_URL="https://image-net.org/data/ILSVRC/2017/ILSVRC2017_DET.tar.gz"
-IMGNET_ZIP_FILE="ILSVRC2017_DET.tar.gz"
 
+IMGNET_URL="https://www.image-net.org/data"   # Provide your image-net url here
+IMGNET_ZIP_FILE="ILSVRC2010_images_train.tar" # Provide your image-net zip file name here
+
+# folder to save the datasets
 DATA_DIR="data"
-
-# --- USAGE FUNCTION ---
-usage() {
-    echo "Usage: $0 [-i|--imagenet] [-c|--celeba] [-d|--div2k] [-r|--realsr] [-s|--set14] [-u|--urban100]"
-    exit 1
-}
-
-# --- INSTALL MISSING TOOLS (without sudo) ---
-echo "Checking required tools..."
-for tool in curl unzip wget; do
-    if ! command -v $tool &>/dev/null; then
-        echo "$tool not found. Installing..."
-        apt-get update && apt-get install -y --no-install-recommends $tool
-    fi
-done
-
-# --- CREATE DATA DIRECTORY ---
-mkdir -p "$DATA_DIR"
 
 # Function to display usage of the script
 usage() {
@@ -132,7 +122,7 @@ download_celeb() {
 	fi
 
 	echo "Splitting data into train, test, and validation sets..."
-	python ~/scripts/data_scripts/divide_data_celeb.py
+	python scripts/data_scripts/divide_data_celeb.py
 	if [ $? -ne 0 ]; then
 		echo "Error: Failed to split Celeb-A-HQ dataset."
 		return 1

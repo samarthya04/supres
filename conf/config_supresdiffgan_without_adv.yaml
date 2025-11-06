@@ -8,9 +8,9 @@ model:
   load_model:
 
 wandb_logger:
-  project: 'SupResDiffGAN' # your wandb project
-  entity: 'samarthya04-kiit-deemed-to-be-university'
-  
+  project: 'your_project' # your wandb project
+  entity: 'your_entity' # your wandb entity
+
 trainer:
   # If both max_epochs and max_steps are set, the training will stop at the first one reached.
   # Don't set to choose only the other one.
@@ -19,9 +19,6 @@ trainer:
   check_val_every_n_epoch: 5
   limit_val_batches: 1
   log_every_n_steps: 1
-  precision: 16  # Use 16-bit precision for memory efficiency
-  accelerator: 'gpu'  # Use GPU for training
-  devices: 1  # Use 1 GPU
 
 dataset:
   name: 'celeb' 

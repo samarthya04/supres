@@ -1,11 +1,8 @@
 mode: 'train-test'
 
 model:
-  name: 'SupResDiffGAN'
+  name: 'I2SB'
   lr: 0.0001
-  alfa_perceptual: 0.001 # perceptual loss weight
-  alfa_adv: 0.01 # adversarial loss weight
-  use_perceptual_loss: False # to use perceptual loss, set to True
   load_model:
 
 wandb_logger:
@@ -22,19 +19,26 @@ trainer:
   log_every_n_steps: 1
 
 dataset:
-  name: 'celeb' 
-  batch_size: 32
-  resize: True
+  name: 'imagenet' 
+  batch_size: 8
+  resize: True  # For diffusion model resize should be True, while for GAN model it should be False
   scale: 4 # used only for train_test split or tests
 
 evaluation:
   mode: steps # steps, posterior, all
   steps: # list of interference steps
+    - 2
+    - 3
+    - 4
+    - 5
+    - 10
+    - 16
+    - 24
+    - 50
     - 100
+    - 250
     - 500
-  posteriors: # list of posteriors
-    - 'ddpm'
-    - 'ddim'
+    - 1000
   save_results: True # results metrics stored in csv file
   results_file: 'evaluation_results/steps_evaluation.csv'
 
@@ -44,9 +48,6 @@ checkpoint:
   save_top_k: 1
   mode: 'min'
 
-autoencoder: 'VAE'
-feature_extractor: True
-
 unet:
   - 64
   - 96
@@ -55,15 +56,5 @@ unet:
 
 diffusion:
   timesteps: 1000
-  beta_type: 'cosine'
-  posterior_type: 'ddpm'
-  validation_timesteps: 1000
-  validation_posterior_type: 'ddpm'
-
-discriminator:
-  in_channels: 6
-  channels:
-  - 64
-  - 128
-  - 256
-  - 512
+  validation_timesteps: 10
+  validation_posterior_type: 

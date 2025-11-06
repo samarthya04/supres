@@ -1,6 +1,5 @@
 import hydra
 import torch
-import os
 from omegaconf import OmegaConf
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint
@@ -39,14 +38,15 @@ def main(cfg) -> None:
     UnknownModeException
         If an unsupported mode is specified in the configuration.
     """
-    torch.set_float32_matmul_precision('medium')
+
     final_model_path = model_path(cfg)
     config_dict = OmegaConf.to_container(cfg, resolve=True)
     logger = WandbLogger(
         project=cfg.wandb.project,
-        entity=cfg.wandb.entity,
         name=final_model_path.split("/")[-1],
+        save_dir="logs",
         config=config_dict,
+        entity=cfg.wandb.entity,
     )
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -55,111 +55,43 @@ def main(cfg) -> None:
     model = model_selection(cfg=cfg, device=device)
     train_loader, val_loader, test_loader = train_val_test_loader(cfg=cfg)
 
-    # --- FIX IS HERE ---
     checkpoint_callback = ModelCheckpoint(
-        monitor=cfg.checkpoint.monitor,  # val/LPIPS
+        monitor=cfg.checkpoint.monitor,
         dirpath=cfg.checkpoint.dirpath,
-        filename=f"{cfg.model.name}-{{epoch:02d}}-{{val/LPIPS:.3f}}",  # Use val/LPIPS
+        filename=cfg.model.name + "-{epoch:02d}-{train_loss:.2f}",
         save_top_k=cfg.checkpoint.save_top_k,
         mode=cfg.checkpoint.mode,
-        save_last=cfg.checkpoint.save_last  # <-- THIS LINE IS ADDED
     )
-    # --- END FIX ---
 
     model = model.to(device)
 
     trainer = Trainer(
         max_epochs=cfg.trainer.max_epochs,
         max_steps=cfg.trainer.max_steps,
-        accelerator=cfg.trainer.accelerator,  # Use GPU
-        devices=cfg.trainer.devices,  # Number of GPUs
+        devices=num_gpus,
         callbacks=[checkpoint_callback],
         logger=logger,
         check_val_every_n_epoch=cfg.trainer.check_val_every_n_epoch,
         limit_val_batches=cfg.trainer.limit_val_batches,
         log_every_n_steps=cfg.trainer.log_every_n_steps,
-        precision=cfg.trainer.precision,  # 16-bit precision
-        # strategy=DDPStrategy(find_unused_parameters=True),  # Comment out
+        strategy=DDPStrategy(find_unused_parameters=True),
     )
 
-    ckpt_path = cfg.trainer.get("resume_from_checkpoint")
-
     if cfg.mode == "train":
-        trainer.fit(model, train_loader, val_loader, ckpt_path=ckpt_path)
-        
-        # --- UPDATED LOGIC ---
-        # Load the best checkpoint and save its state_dict
-        best_ckpt_path = checkpoint_callback.best_model_path
-        
-        if not best_ckpt_path:
-             print("Warning: No best checkpoint path found. Saving the LAST model.")
-             best_ckpt_path = trainer.checkpoint_callback.last_model_path
-
-        if best_ckpt_path:
-            print(f"Fit complete. Loading model state_dict from: {best_ckpt_path}")
-            best_ckpt = torch.load(best_ckpt_path, map_location=device)
-            model.load_state_dict(best_ckpt['state_dict'])
-            print(f"Saving model state_dict to: {final_model_path}.pth")
-            torch.save(model.state_dict(), f"{final_model_path}.pth")
-        else:
-            print("Warning: No best OR last checkpoint found. Saving the model in memory.")
-            torch.save(model.state_dict(), f"{final_model_path}.pth")
+        trainer.fit(model, train_loader, val_loader)
+        torch.save(model.state_dict(), f"{final_model_path}.pth")
 
     elif cfg.mode == "train-test":
-        # 1. Train the model
-        trainer.fit(model, train_loader, val_loader, ckpt_path=ckpt_path)
-
-        # 2. Get the path to the best checkpoint
-        best_ckpt_path = checkpoint_callback.best_model_path
-        
-        # --- UPDATED LOGIC ---
-        if not best_ckpt_path:
-            print("Warning: No best checkpoint path found. Testing/Saving the LAST model.")
-            # Fallback to the last model path if it exists
-            best_ckpt_path = trainer.checkpoint_callback.last_model_path
-        
-        if best_ckpt_path:
-            # 3. Load the best/last checkpoint's state_dict into your model object
-            print(f"Fit complete. Loading model state_dict from: {best_ckpt_path}")
-            best_ckpt = torch.load(best_ckpt_path, map_location=device)
-            model.load_state_dict(best_ckpt['state_dict'])
-        else:
-            print("Warning: No checkpoint found. Testing/Saving the LAST model in memory.")
-
-        # 4. Now 'model' IS your best/last model
-        print("Adjusting model for testing...")
-        model = adjust_model_for_testing(cfg, model)
-        
-        # 5. Test the loaded model
-        print("Running test on the loaded model...")
-        trainer.test(model, test_loader) 
-
-        # 6. Save the loaded model's state_dict
-        print(f"Saving loaded model's state_dict to: {final_model_path}.pth")
+        trainer.fit(model, train_loader, val_loader)
         torch.save(model.state_dict(), f"{final_model_path}.pth")
-        # --- END UPDATED LOGIC ---
+        model = adjust_model_for_testing(cfg, model)
+        trainer.test(model, test_loader)
 
     elif cfg.mode == "test":
         if cfg.model.load_model is None:
             raise EvaluateFreshInitializedModelException()
-
-        # --- UPDATED LOGIC ---
-        # You must load the weights into the model *before* testing
-        print(f"Loading model for testing from: {cfg.model.load_model}")
-        ckpt = torch.load(cfg.model.load_model, map_location=device)
-        
-        # Check if checkpoint is from Lightning (has 'state_dict') or raw weights
-        if 'state_dict' in ckpt:
-            model.load_state_dict(ckpt['state_dict'])
-        else:
-            model.load_state_dict(ckpt)
-        
-        print("Adjusting model for testing...")
         model = adjust_model_for_testing(cfg, model)
-        
-        print("Running test...")
         trainer.test(model, test_loader)
-        # --- END UPDATED LOGIC ---
 
     else:
         raise UnknownModeException()
@@ -183,11 +115,12 @@ def adjust_model_for_testing(cfg, model) -> object:
     object
         The adjusted model object.
     """
-    # List of supported SupResDiffGAN models that may require adjustments
+    # List of supported models that may require adjustments
     models_with_diffusion = {
-        "SupResDiffGAN",
-        "SupResDiffGAN_without_adv", 
-        "SupResDiffGAN_simple_gan",
+        "SupResDiffGAN_v3",
+        "SR3",
+        "SupResDiffGAN_no_perceptual",
+        "I2SB",
     }
 
     # Check if the model requires adjustments of diffusion parameters
