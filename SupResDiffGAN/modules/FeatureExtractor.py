@@ -7,26 +7,26 @@ class FeatureExtractor(nn.Module):
     def __init__(self, device: torch.device) -> None:
         """Initialize the FeatureExtractor.
 
-        This class uses the VGG19 model pretrained on ImageNet to extract features
-        from images. It uses the first 35 layers of the VGG19 model.
-
-        Parameters
-        ----------
-        device : torch.device
-            Device to run the model on.
+        Uses pretrained VGG19 on ImageNet to extract multi-level features.
+        DDP-safe version: moves buffers dynamically to the input device.
         """
         super(FeatureExtractor, self).__init__()
-        vgg19_model = vgg19(pretrained=True).features
-        self.layers = {
-            "conv1": nn.Sequential(*list(vgg19_model.children())[:2]).to(device),
-            "conv2": nn.Sequential(*list(vgg19_model.children())[2:7]).to(device),
-            "conv3": nn.Sequential(*list(vgg19_model.children())[7:12]).to(device),
-            "conv4": nn.Sequential(*list(vgg19_model.children())[12:21]).to(device),
-            "conv5": nn.Sequential(*list(vgg19_model.children())[21:35]).to(device),
-        }
-        self.mean = torch.Tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1).to(device)
-        self.std = torch.Tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1).to(device)
-        self.criterion = nn.L1Loss().to(device)
+        vgg19_model = vgg19(weights="IMAGENET1K_V1").features
+
+        # Store the feature layers for perceptual loss
+        self.layers = nn.ModuleDict({
+            "conv1": nn.Sequential(*list(vgg19_model.children())[:2]),
+            "conv2": nn.Sequential(*list(vgg19_model.children())[2:7]),
+            "conv3": nn.Sequential(*list(vgg19_model.children())[7:12]),
+            "conv4": nn.Sequential(*list(vgg19_model.children())[12:21]),
+            "conv5": nn.Sequential(*list(vgg19_model.children())[21:35]),
+        })
+
+        # Register buffers instead of regular tensors (DDP-safe)
+        self.register_buffer("mean", torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1))
+        self.register_buffer("std", torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
+
+        self.criterion = nn.L1Loss()
         self.feature_weights = {
             "conv1": 0.1,
             "conv2": 0.1,
@@ -35,36 +35,30 @@ class FeatureExtractor(nn.Module):
             "conv5": 1.0,
         }
 
+        # Move everything to the correct initial device
+        self.to(device)
+
     def forward(self, sr_img: torch.Tensor, hr_img: torch.Tensor) -> torch.Tensor:
-        """Forward pass of the FeatureExtractor to compute perceptual loss.
+        """Compute the perceptual (VGG-based) loss between SR and HR images."""
+        device = sr_img.device
+        self.mean = self.mean.to(device)
+        self.std = self.std.to(device)
 
-        Parameters
-        ----------
-        sr_img : torch.Tensor
-            Super-resolved image tensor. The tensor should be normalized to the range [-1, 1].
-        hr_img : torch.Tensor
-            High-resolution image tensor. The tensor should be normalized to the range [-1, 1].
-
-        Returns
-        -------
-        torch.Tensor
-            Perceptual loss.
-        """
-        # Normalize from [-1, 1] to [0, 1]
+        # Normalize from [-1, 1] → [0, 1]
         sr_img = (sr_img + 1) / 2
         hr_img = (hr_img + 1) / 2
 
-        # Standardize the images
+        # Standardize with mean/std
         sr_img = (sr_img - self.mean) / self.std
         hr_img = (hr_img - self.mean) / self.std
 
-        perceptual_loss = 0
+        perceptual_loss = 0.0
+
+        # Extract multi-level features and compute weighted L1 differences
         with torch.no_grad():
             for name, layer in self.layers.items():
                 sr_img = layer(sr_img)
                 hr_img = layer(hr_img)
-                perceptual_loss += self.feature_weights[name] * self.criterion(
-                    sr_img, hr_img
-                )
+                perceptual_loss += self.feature_weights[name] * self.criterion(sr_img, hr_img)
 
         return perceptual_loss
